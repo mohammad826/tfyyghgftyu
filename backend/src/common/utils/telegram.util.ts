@@ -10,10 +10,10 @@ export function validateTelegramInitData(initData: string, botToken: string): bo
     .map(([key, value]) => `${key}=${value}`)
     .join('\n');
 
-  const secretKey = crypto
-    .createHmac('sha256', 'WebAppData')
-    .update(botToken)
-    .digest();
+  // Telegram validation per docs:
+  // secret_key = sha256(bot_token)
+  // hmac = hmac_sha256(secret_key, data_check_string)
+  const secretKey = crypto.createHash('sha256').update(botToken).digest();
 
   const hmac = crypto
     .createHmac('sha256', secretKey)
