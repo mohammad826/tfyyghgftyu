@@ -46,8 +46,15 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   const login = async (raw: string) => {
     try {
       const { data } = await api.post('/auth/telegram', { initData: raw });
+      // Ensure numeric types are normalized for the client
+      const normalizedUser = {
+        ...data.user,
+        balance: typeof data.user.balance === 'string' ? parseFloat(data.user.balance) : Number(data.user.balance),
+        telegramId: String(data.user.telegramId),
+      };
+
       setToken(data.access_token);
-      setUser(data.user);
+      setUser(normalizedUser);
     } catch (e) {
       console.error('Login failed', e);
     }
