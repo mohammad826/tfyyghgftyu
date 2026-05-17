@@ -6,6 +6,7 @@ interface User {
   username: string;
   balance: number;
   isAdmin: boolean;
+  referralCode: string;
 }
 
 interface AppState {
