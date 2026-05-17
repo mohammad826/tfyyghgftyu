@@ -23,7 +23,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       const { initDataRaw: raw, initData: parsed } = retrieveLaunchParams();
       
       // Fallback to window.Telegram if SDK retrieve fails or is empty
-      const finalRaw = raw || window.Telegram?.WebApp?.initData;
+      const finalRaw = raw || (window as any).Telegram?.WebApp?.initData;
       
       setInitDataRaw(finalRaw);
       setInitData(parsed);
@@ -35,7 +35,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       console.error('Failed to initialize Telegram SDK or retrieve launch params', e);
       
       // Fallback for development/testing outside Telegram
-      const raw = window.Telegram?.WebApp?.initData;
+      const raw = (window as any).Telegram?.WebApp?.initData;
       if (raw) {
         setInitDataRaw(raw);
         login(raw);
