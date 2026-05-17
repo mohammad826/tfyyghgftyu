@@ -1,14 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  initInitData, 
-  initMainButton, 
-  initViewport, 
-  initMiniApp, 
-  useSignal,
-  type InitData
-} from '@telegram-apps/sdk-react';
+import { retrieveLaunchParams } from '@telegram-apps/sdk-react';
 import api from '../api/axios';
 import { useStore } from '../store/useStore';
 
@@ -26,20 +19,27 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      // Initialize Telegram SDK
-      const viewport = initViewport();
-      const miniApp = initMiniApp();
-      const [initData] = initInitData();
+      // Retrieve launch parameters from Telegram SDK safely on the client side
+      const { initDataRaw: raw, initData: parsed } = retrieveLaunchParams();
       
-      const raw = window.Telegram?.WebApp?.initData;
-      setInitDataRaw(raw);
-      setInitData(initData);
+      // Fallback to window.Telegram if SDK retrieve fails or is empty
+      const finalRaw = raw || window.Telegram?.WebApp?.initData;
+      
+      setInitDataRaw(finalRaw);
+      setInitData(parsed);
 
-      if (raw) {
-        login(raw);
+      if (finalRaw) {
+        login(finalRaw);
       }
     } catch (e) {
-      console.error('Failed to initialize Telegram SDK', e);
+      console.error('Failed to initialize Telegram SDK or retrieve launch params', e);
+      
+      // Fallback for development/testing outside Telegram
+      const raw = window.Telegram?.WebApp?.initData;
+      if (raw) {
+        setInitDataRaw(raw);
+        login(raw);
+      }
     }
   }, []);
 
