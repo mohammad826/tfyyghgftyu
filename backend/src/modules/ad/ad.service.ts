@@ -4,7 +4,10 @@ import { Decimal } from '@prisma/client/runtime/library';
 
 @Injectable()
 export class AdService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notificationService?: any,
+  ) {}
 
   async claimReward(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });

@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { validateTelegramInitData, parseTelegramInitData } from '../../common/utils/telegram.util';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -12,12 +13,12 @@ export class AuthService {
     private configService: ConfigService,
   ) {}
 
-  async validateTelegramLogin(initData: string) {
+  async validateTelegramLogin(initData: string, referralCode?: string) {
     const botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
     if (!botToken) {
       throw new UnauthorizedException('Telegram bot token is not configured');
     }
-    
+
     if (!validateTelegramInitData(initData, botToken)) {
       throw new UnauthorizedException('Invalid Telegram data');
     }
@@ -31,9 +32,19 @@ export class AuthService {
       where: { telegramId: BigInt(tgUser.id) },
     });
 
+    let referredById: string | undefined;
+
     if (!user) {
-      // Create new user
-      const referralCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+      if (referralCode) {
+        const referrer = await this.prisma.user.findUnique({
+          where: { referralCode },
+        });
+        if (referrer && String(referrer.telegramId) !== tgUser.id) {
+          referredById = referrer.id;
+        }
+      }
+
+      const newReferralCode = crypto.randomBytes(4).toString('hex').toUpperCase();
       user = await this.prisma.user.create({
         data: {
           telegramId: BigInt(tgUser.id),
@@ -41,11 +52,11 @@ export class AuthService {
           firstName: tgUser.first_name,
           photoUrl: tgUser.photo_url,
           languageCode: tgUser.language_code,
-          referralCode,
+          referralCode: newReferralCode,
+          referredById,
         },
       });
     } else {
-      // Update existing user info
       user = await this.prisma.user.update({
         where: { id: user.id },
         data: {
@@ -67,8 +78,12 @@ export class AuthService {
         id: user.id,
         telegramId: user.telegramId.toString(),
         username: user.username,
+        firstName: user.firstName,
         balance: user.balance,
         isAdmin: user.isAdmin,
+        referralCode: user.referralCode,
+        referredById: user.referredById,
+        referralCount: await this.prisma.user.count({ where: { referredById: user.id } }),
       }
     };
   }

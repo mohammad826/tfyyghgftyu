@@ -8,6 +8,9 @@ import { UserModule } from './modules/user/user.module';
 import { AdModule } from './modules/ad/ad.module';
 import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { TransferModule } from './modules/transfer/transfer.module';
+import { NotificationModule } from './modules/notification/notification.module';
 
 @Module({
   imports: [
@@ -18,6 +21,9 @@ import { AdminModule } from './modules/admin/admin.module';
     AdModule,
     WithdrawalModule,
     AdminModule,
+    TasksModule,
+    TransferModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

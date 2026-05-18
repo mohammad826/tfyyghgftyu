@@ -1,258 +1,75 @@
 'use client';
 
 import { useStore } from "@/store/useStore";
-import { Play, Wallet, Users, History, Gift, Timer, ExternalLink, CheckCircle, RefreshCw } from "lucide-react";
+import { Play, Wallet, Users, History, User, Sun, Moon, Gift, Timer, Loader2 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import api from "@/api/axios";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+
+const TASK_DATA = [
+  { id: 1, title: "Join Telegram Channel", desc: "Join our official news channel for updates.", reward: 0.05, link: "https://t.me/wfjcikcnfhcdbcbot" },
+  { id: 2, title: "Play Ton Boost Mini-App", desc: "Launch the partner mini app and complete level 1.", reward: 0.08, link: "https://t.me/your_bot" },
+  { id: 3, title: "Subscribe to YouTube", desc: "Subscribe to our partner channel for tech tips.", reward: 0.04, link: "https://youtube.com" }
+];
+
+const VIP_TIERS: Record<number, { label: string; textColor: string; bgColor: string; glow: string }> = {
+  0: { label: "", textColor: "", bgColor: "", glow: "" },
+  1: { label: "Bronze", textColor: "text-orange-700", bgColor: "bg-orange-100", glow: "" },
+  2: { label: "Silver", textColor: "text-gray-600", bgColor: "bg-gray-100", glow: "" },
+  3: { label: "Gold", textColor: "text-yellow-600", bgColor: "bg-yellow-100", glow: "shadow-yellow-300/50" },
+  4: { label: "Platinum", textColor: "text-cyan-600", bgColor: "bg-cyan-100", glow: "" },
+  5: { label: "Diamond", textColor: "text-purple-600", bgColor: "bg-purple-100", glow: "shadow-purple-300/50" }
+};
+
+const NAV_ITEMS = [
+  { icon: Play, label: "Ads", path: "/" },
+  { icon: Users, label: "Friends", path: "/referrals" },
+  { icon: Wallet, label: "Wallet", path: "/wallet" },
+  { icon: History, label: "History", path: "/history" },
+  { icon: User, label: "Profile", path: "/profile" }
+];
 
 export default function Home() {
-  const { user, updateBalance } = useStore();
+  const { user, isDarkMode, toggleTheme, updateBalance, addNotification } = useStore();
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [stats, setStats] = useState<any>(null);
-  const [initialAdShown, setInitialAdShown] = useState(false);
-  const [showErrorScreen, setShowErrorScreen] = useState(false);
-  const periodicAdRef = useRef<number | null>(null);
-
-  // Native Sponsor Tasks State
-  const [tasks, setTasks] = useState<any[]>([
-    {
-      id: 1,
-      title: "Join Telegram Sponsor",
-      desc: "Join our official news channel for updates.",
-      reward: 0.05,
-      link: "https://t.me/wfjcikcnfhcdbcbot",
-      status: "GO", // GO, VERIFYING, CLAIM, DONE
-      timer: 0
-    },
-    {
-      id: 2,
-      title: "Play Ton Boost Mini-App",
-      desc: "Launch the partner mini app and complete level 1.",
-      reward: 0.08,
-      link: "https://t.me/your_bot",
-      status: "GO",
-      timer: 0
-    },
-    {
-      id: 3,
-      title: "Subscribe to YouTube Channel",
-      desc: "Subscribe to our partner channel for tech tips.",
-      reward: 0.04,
-      link: "https://youtube.com",
-      status: "GO",
-      timer: 0
-    }
-  ]);
+  const [claimingDaily, setClaimingDaily] = useState(false);
+  const [rewardAnim, setRewardAnim] = useState<{ show: boolean; amount: number }>({ show: false, amount: 0 });
+  const periodicAdRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     fetchStats();
-
-    // Automatically trigger In-App Interstitial on app mount safely
-    if (typeof window !== 'undefined') {
-      const triggerInApp = () => {
-        const showAdFn = (window as any).show_11017565;
-        if (typeof showAdFn === 'function') {
-          try {
-            showAdFn({
-              type: 'inApp',
-              inAppSettings: {
-                frequency: 2,
-                capping: 0.1,
-                interval: 30,
-                timeout: 5,
-                everyPage: false
-              }
-            });
-            console.log("In-App Interstitial successfully initialized!");
-          } catch (e) {
-            console.error("Failed to initialize In-App Interstitial:", e);
-          }
-        } else {
-          // Retry in 1.5 seconds if script is still loading
-          setTimeout(triggerInApp, 1500);
-        }
-      };
-      triggerInApp();
-    }
   }, []);
 
-  // If the user opens the app via Telegram but is not authenticated yet,
-  // show an ad right after the welcome message, then display the error overlay
-  // that the user mentioned. The back button will be non-functional on that overlay.
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (periodicAdRef.current) {
+      clearInterval(periodicAdRef.current);
+      periodicAdRef.current = null;
+    }
+    if (!user) return;
 
-    let mounted = true;
-
-    const runInitialAdFlow = async () => {
+    const showPeriodicAd = async () => {
       try {
         const showAdFn = (window as any).show_11017565;
         if (typeof showAdFn === 'function') {
-          // small delay so the user sees the welcome message first
-          await new Promise((r) => setTimeout(r, 800));
-          try {
-            await showAdFn();
-            if (!mounted) return;
-            setInitialAdShown(true);
-          } catch (err) {
-            // user closed ad or it failed — still show the error overlay per spec
-            console.warn('Initial ad closed or failed', err);
-          }
-        } else {
-          // Fallback simulation
-          await new Promise((r) => setTimeout(r, 1200));
+          await showAdFn();
+          fetchStats();
         }
-      } finally {
-        if (!mounted) return;
-        // Show the error overlay after the ad (or simulated ad)
-        setShowErrorScreen(true);
-      }
+      } catch {}
     };
 
-    // Trigger initial ad only when user is not present (opens in Telegram but not logged in)
-    if (!user && !initialAdShown) {
-      runInitialAdFlow();
-    }
+    const id = setInterval(showPeriodicAd, 3 * 60 * 1000);
+    periodicAdRef.current = id;
 
     return () => {
-      mounted = false;
+      if (periodicAdRef.current) clearInterval(periodicAdRef.current);
     };
-  }, [user, initialAdShown]);
-
-  // Periodic ads for logged-in users every few minutes
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    // Clear previous interval if any
-    if (periodicAdRef.current) {
-      window.clearInterval(periodicAdRef.current);
-      periodicAdRef.current = null;
-    }
-
-    if (user) {
-      const showPeriodicAd = async () => {
-        try {
-          const showAdFn = (window as any).show_11017565;
-          if (typeof showAdFn === 'function') {
-            await showAdFn();
-            // Optionally refresh stats or update balance after ad
-            fetchStats();
-          }
-        } catch (e) {
-          console.warn('Periodic ad failed or closed', e);
-        }
-      };
-
-      // Show first periodic ad after 3 minutes, then every 3 minutes
-      const id = window.setInterval(showPeriodicAd, 3 * 60 * 1000);
-      periodicAdRef.current = id as unknown as number;
-
-      return () => {
-        if (periodicAdRef.current) {
-          window.clearInterval(periodicAdRef.current);
-          periodicAdRef.current = null;
-        }
-      };
-    }
   }, [user]);
-
-  const fetchStats = async () => {
-    try {
-      const { data } = await api.get('/user/stats');
-      setStats(data);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleWatchAd = async () => {
-    if (cooldown > 0) return;
-
-    setLoading(true);
-    try {
-      if (typeof window !== 'undefined') {
-        const showAdFn = (window as any).show_11017565;
-        if (typeof showAdFn === 'function') {
-          // 1. Trigger the Promise-based Rewarded Interstitial
-          await showAdFn().then(async () => {
-            // 2. User successfully watched ad! Award points on backend!
-            const { data } = await api.post('/ad/reward');
-            updateBalance(data.reward);
-            setCooldown(15); // 15 seconds cooldown
-            fetchStats();
-            alert(`🎉 Success! You watched the ad and earned $${data.reward}`);
-          }).catch((err: any) => {
-            console.warn("User closed ad or error occurred:", err);
-            alert("⚠️ You closed the ad early. Watch to the end to get rewarded.");
-          });
-        } else {
-          // Fallback simulation in dev mode/if blocked
-          console.warn("show_11017565 function not found. Simulating ad.");
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          const { data } = await api.post('/ad/reward');
-          updateBalance(data.reward);
-          setCooldown(15);
-          fetchStats();
-          alert(`🎉 [Demo Mode] Success! You watched the ad and earned $${data.reward}`);
-        }
-      }
-    } catch (e: any) {
-      console.error(e);
-      alert(e.response?.data?.message || 'Failed to claim reward. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleTaskAction = (taskId: number) => {
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) return;
-
-    if (task.status === 'GO') {
-      // Open sponsor link safely
-      if (typeof window !== 'undefined') {
-        const opened = (window as any).Telegram?.WebApp?.openLink 
-          ? (window as any).Telegram.WebApp.openLink(task.link)
-          : window.open(task.link, '_blank');
-      }
-
-      // Start Verification Timer (8 seconds)
-      setTasks(prev => prev.map(t => {
-        if (t.id === taskId) {
-          return { ...t, status: 'VERIFYING', timer: 8 };
-        }
-        return t;
-      }));
-
-      const interval = setInterval(() => {
-        setTasks(prev => {
-          return prev.map(t => {
-            if (t.id === taskId) {
-              if (t.timer <= 1) {
-                clearInterval(interval);
-                return { ...t, status: 'CLAIM', timer: 0 };
-              }
-              return { ...t, timer: t.timer - 1 };
-            }
-            return t;
-          });
-        });
-      }, 1000);
-
-    } else if (task.status === 'CLAIM') {
-      // Award reward and set to done
-      updateBalance(task.reward);
-      setTasks(prev => prev.map(t => {
-        if (t.id === taskId) {
-          return { ...t, status: 'DONE' };
-        }
-        return t;
-      }));
-      alert(`🎉 Reward Claimed! You earned $${task.reward} from Sponsor Task!`);
-    }
-  };
 
   useEffect(() => {
     if (cooldown > 0) {
@@ -261,196 +78,270 @@ export default function Home() {
     }
   }, [cooldown]);
 
-  // Block navigation when showing the error overlay so back button doesn't work
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    if (!showErrorScreen) return;
-
-    // Push a new history entry and prevent popping while overlay is active
+  const fetchStats = async () => {
     try {
-      window.history.pushState(null, '', window.location.href);
-      const onPop = () => {
-        // Re-push so the user can't go back
-        window.history.pushState(null, '', window.location.href);
-      };
-      window.addEventListener('popstate', onPop);
+      const { data } = await api.get('/user/stats');
+      setStats(data);
+    } catch {}
+  };
 
-      return () => {
-        window.removeEventListener('popstate', onPop);
-      };
-    } catch (e) {
-      // ignore
+  const handleClaimDaily = async () => {
+    if (!stats?.canClaimDaily) return;
+    setClaimingDaily(true);
+    try {
+      const { data } = await api.post('/user/daily-bonus');
+      updateBalance(data.reward);
+      setRewardAnim({ show: true, amount: data.reward });
+      setTimeout(() => setRewardAnim({ show: false, amount: 0 }), 2000);
+      if (data.streak !== undefined) {
+        useStore.getState().setStreak(data.streak);
+      }
+      addNotification({ type: 'reward', message: `Daily bonus claimed! +$${data.reward.toFixed(4)}` });
+      fetchStats();
+    } catch (e: any) {
+      addNotification({ type: 'error', message: e.response?.data?.message || 'Failed to claim daily bonus' });
+    } finally {
+      setClaimingDaily(false);
     }
-  }, [showErrorScreen]);
+  };
+
+  const handleWatchAd = async () => {
+    if (cooldown > 0 || loading) return;
+    setLoading(true);
+    try {
+      const showAdFn = (window as any).show_11017565;
+      if (typeof showAdFn === 'function') {
+        await showAdFn().then(async () => {
+          const { data } = await api.post('/ad/reward');
+          updateBalance(data.reward);
+          setCooldown(15);
+          fetchStats();
+          addNotification({ type: 'reward', message: `Watched ad! +$${data.reward.toFixed(4)}` });
+        }).catch(() => {});
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const { data } = await api.post('/ad/reward');
+        updateBalance(data.reward);
+        setCooldown(15);
+        fetchStats();
+        addNotification({ type: 'reward', message: `[Demo] Ad reward! +$${data.reward.toFixed(4)}` });
+      }
+    } catch (e: any) {
+      addNotification({ type: 'error', message: e.response?.data?.message || 'Failed to claim reward' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!user) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-        {showErrorScreen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl p-6 w-[90%] max-w-md text-center">
-              <h3 className="font-bold text-lg mb-2">This page couldn't load</h3>
-              <p className="text-sm text-gray-600 mb-4">Reload to try again or go back</p>
-              <div className="flex gap-3 justify-center">
-                <button
-                  onClick={() => window.location.reload()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-2xl font-bold"
-                >
-                  Reload
-                </button>
-                <button
-                  onClick={() => {/* intentionally disabled: back is blocked */}}
-                  className="px-4 py-2 bg-gray-200 text-gray-600 rounded-2xl font-bold cursor-not-allowed"
-                >
-                  Go back
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        <div className="bg-white p-8 rounded-3xl shadow-xl border border-blue-100">
-          <div className="w-20 h-20 bg-blue-500 rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-lg shadow-blue-200">
-            <Play className="text-white w-10 h-10 fill-current" />
-          </div>
-          <h1 className="text-2xl font-bold mb-2">Welcome to Watch & Earn</h1>
-          <p className="text-gray-500 mb-6">Please open this app via Telegram to start earning.</p>
-        </div>
+      <div className="flex flex-col items-center justify-center h-screen bg-[#f0f0f0] dark:bg-[#111827]">
+        <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center gap-4">
+          <Loader2 className="w-12 h-12 text-blue-600 dark:text-blue-400 animate-spin" />
+          <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">Loading...</p>
+        </motion.div>
       </div>
     );
   }
 
+  const vipTier = user.vipTier || 0;
+  const vipInfo = VIP_TIERS[vipTier] || VIP_TIERS[0];
+  const vipMultiplier = 1 + vipTier * 0.1;
+
   return (
-    <div className="flex flex-col flex-1 p-4 pb-28 gap-6">
-      {/* Header / Profile */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-md">
-            {user.username?.[0]?.toUpperCase() || 'U'}
-          </div>
-          <div>
-            <h2 className="font-bold text-lg">@{user.username || 'User'}</h2>
-            <p className="text-xs text-gray-500">ID: {user.telegramId}</p>
-          </div>
-        </div>
-        <div className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 border border-yellow-200">
-          <Gift size={14} /> Daily Streak: 1
-        </div>
-      </div>
-
-      {/* Balance Card */}
-      <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-[2.5rem] p-8 text-white shadow-2xl shadow-blue-200 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl" />
-        <div className="relative z-10">
-          <p className="text-blue-100 text-sm font-medium mb-1 opacity-80 uppercase tracking-wider">Current Balance</p>
-          <h1 className="text-5xl font-black mb-6 tracking-tight">${user.balance.toFixed(4)}</h1>
-          <div className="flex gap-4">
-            <div className="bg-white/20 backdrop-blur-md rounded-2xl p-3 flex-1">
-              <p className="text-[10px] text-blue-100 uppercase font-bold opacity-70">Total Earned</p>
-              <p className="text-lg font-bold">${stats?.totalEarned?.toFixed(4) || '0.0000'}</p>
+    <div className="flex flex-col flex-1 min-h-screen bg-[#f0f0f0] dark:bg-[#111827] pb-28">
+      <div className="flex flex-col p-4 gap-5 max-w-2xl mx-auto w-full">
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => router.push('/profile')}>
+            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-md">
+              {user.username?.[0]?.toUpperCase() || 'U'}
             </div>
-            <div className="bg-white/20 backdrop-blur-md rounded-2xl p-3 flex-1">
-              <p className="text-[10px] text-blue-100 uppercase font-bold opacity-70">Referrals</p>
-              <p className="text-lg font-bold">{stats?.referralCount || 0}</p>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <h2 className="font-bold text-lg text-gray-900 dark:text-gray-100">@{user.username || 'User'}</h2>
+                {vipTier > 0 && (
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${vipInfo.textColor} ${vipInfo.bgColor} ${vipInfo.glow} shadow-sm`}>
+                    {vipInfo.label}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">ID: {user.telegramId}</p>
             </div>
           </div>
-        </div>
-      </div>
+          <button onClick={toggleTheme} className="p-2 rounded-full bg-white dark:bg-[#1f2937] shadow-md hover:scale-105 transition-transform">
+            {isDarkMode ? <Sun className="w-5 h-5 text-yellow-400" /> : <Moon className="w-5 h-5 text-gray-600" />}
+          </button>
+        </motion.div>
 
-      {/* Main Action - Rewarded Interstitial Ad */}
-      <div className="flex flex-col gap-4">
-        <button
-          onClick={handleWatchAd}
-          disabled={loading || cooldown > 0}
-          className={`
-            w-full h-20 rounded-[2rem] flex items-center justify-center gap-3 font-black text-xl transition-all shadow-xl
-            ${(loading || cooldown > 0)
-              ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' 
-              : 'bg-green-500 text-white hover:bg-green-600 active:scale-95 shadow-green-200'}
-          `}
-        >
-          {loading ? (
-            <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin" />
-          ) : cooldown > 0 ? (
-            <>
-              <Timer className="w-6 h-6 animate-pulse" />
-              Wait {cooldown}s
-            </>
-          ) : (
-            <>
-              <Play className="w-8 h-8 fill-current animate-bounce" />
-              WATCH ADS & EARN
-            </>
-          )}
-        </button>
-        <div className="flex justify-between px-4 text-sm text-gray-500 font-medium">
-          <span>Remaining: {stats?.dailyAdsRemaining || 0}/20</span>
-          <span>Reward: $0.0020</span>
-        </div>
-      </div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <div className="bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 rounded-[1.8rem] p-6 text-white shadow-xl relative overflow-hidden">
+            <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-2xl" />
+            <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
+            <div className="relative z-10">
+              <p className="text-blue-100 text-xs font-bold uppercase tracking-wider mb-1">Daily Bonus</p>
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-3xl">🔥</span>
+                <div>
+                  <p className="text-2xl font-black">{stats?.streak || user.streak || 0} Day Streak</p>
+                  {vipTier > 0 && <p className="text-sm text-blue-200">VIP ×{vipMultiplier.toFixed(1)} Multiplier</p>}
+                </div>
+              </div>
+              <AnimatePresence>
+                {stats?.canClaimDaily ? (
+                  <motion.button
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.8, opacity: 0 }}
+                    onClick={handleClaimDaily}
+                    disabled={claimingDaily}
+                    className="bg-white text-blue-600 font-black px-6 py-2.5 rounded-2xl shadow-lg hover:scale-105 active:scale-95 transition-transform flex items-center gap-2"
+                  >
+                    {claimingDaily ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
+                    Claim ${(stats?.dailyBonus || 0.01).toFixed(4)}
+                  </motion.button>
+                ) : (
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.8, opacity: 0 }}
+                    className="bg-white/20 backdrop-blur-md px-4 py-2 rounded-2xl inline-flex items-center gap-2 text-sm font-bold"
+                  >
+                    <span className="text-green-300">✓</span> Claimed Today
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </motion.div>
 
-      {/* Featured Sponsor Tasks Section */}
-      <div className="flex flex-col gap-3">
-        <h3 className="font-black text-lg text-gray-800 ml-2">Featured Sponsor Tasks</h3>
-        <div className="flex flex-col gap-3">
-          {tasks.map(task => (
-            <div key={task.id} className="bg-white p-4 rounded-3xl border border-gray-100 flex items-center justify-between gap-3 shadow-sm hover:shadow-md transition-shadow">
-              <div className="flex-1">
-                <h4 className="font-bold text-sm text-gray-800">{task.title}</h4>
-                <p className="text-xs text-gray-400 leading-tight mb-2">{task.desc}</p>
-                <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-black border border-green-100">
-                  +${task.reward.toFixed(4)}
-                </span>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <div className="bg-white dark:bg-[#1f2937] rounded-[1.8rem] p-6 shadow-lg border border-gray-100 dark:border-gray-700">
+            <div className="mb-4">
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider mb-1">Current Balance</p>
+              <h1 className="text-4xl font-black text-gray-900 dark:text-gray-100">${user.balance.toFixed(4)}</h1>
+            </div>
+            <div className="flex gap-3">
+              <div className="bg-[#f0f0f0] dark:bg-[#111827] rounded-2xl p-3 flex-1">
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold">Total Earned</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-gray-100">${(stats?.totalEarned || 0).toFixed(4)}</p>
+              </div>
+              <div className="bg-[#f0f0f0] dark:bg-[#111827] rounded-2xl p-3 flex-1">
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold">Referrals</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{stats?.referralCount || 0}</p>
+              </div>
+              <div className="bg-[#f0f0f0] dark:bg-[#111827] rounded-2xl p-3 flex-1">
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold">Rank</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-gray-100">#{stats?.rank || '—'}</p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <button
+            onClick={handleWatchAd}
+            disabled={loading || cooldown > 0}
+            className={`
+              w-full h-[4.5rem] rounded-[2rem] flex items-center justify-center gap-3 font-black text-lg transition-all shadow-xl
+              ${loading || cooldown > 0
+                ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none'
+                : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 active:scale-[0.98] shadow-green-200 dark:shadow-green-900'}
+            `}
+          >
+            {loading ? (
+              <><Loader2 className="w-6 h-6 animate-spin" /> Processing...</>
+            ) : cooldown > 0 ? (
+              <><Timer className="w-6 h-6 animate-pulse" /> Wait {cooldown}s</>
+            ) : (
+              <><Play className="w-7 h-7 fill-current" /> WATCH & EARN $0.002</>
+            )}
+          </button>
+          <div className="flex justify-between px-2 mt-2 text-xs text-gray-500 dark:text-gray-400 font-medium">
+            <span>Remaining: {(stats?.dailyAdsRemaining || 0)}/20</span>
+            <span>Reward: $0.0020</span>
+          </div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+          <div className="bg-gradient-to-r from-purple-500 to-pink-600 rounded-[1.8rem] p-5 text-white shadow-lg relative overflow-hidden">
+            <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
+            <div className="relative z-10 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold mb-1">Invite Friends & Earn!</p>
+                <p className="text-xs text-purple-100">Get 10% forever from each referral</p>
               </div>
               <button
-                onClick={() => handleTaskAction(task.id)}
-                disabled={task.status === 'DONE' || (task.status === 'VERIFYING' && task.timer > 0)}
-                className={`
-                  px-5 py-3 rounded-2xl font-black text-xs transition-all shrink-0 active:scale-95 flex items-center gap-1
-                  ${task.status === 'GO' && 'bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-100'}
-                  ${task.status === 'VERIFYING' && 'bg-yellow-100 text-yellow-700 border border-yellow-200 cursor-wait'}
-                  ${task.status === 'CLAIM' && 'bg-green-500 text-white hover:bg-green-600 animate-bounce'}
-                  ${task.status === 'DONE' && 'bg-gray-100 text-gray-400 cursor-not-allowed'}
-                `}
+                onClick={() => router.push('/referrals')}
+                className="bg-white text-purple-600 font-bold px-4 py-2 rounded-2xl text-sm shadow-lg hover:scale-105 active:scale-95 transition-transform"
               >
-                {task.status === 'GO' && (
-                  <>
-                    GO <ExternalLink size={12} />
-                  </>
-                )}
-                {task.status === 'VERIFYING' && (
-                  <>
-                    <RefreshCw size={12} className="animate-spin" /> {task.timer}s
-                  </>
-                )}
-                {task.status === 'CLAIM' && "CLAIM"}
-                {task.status === 'DONE' && (
-                  <>
-                    DONE <CheckCircle size={12} />
-                  </>
-                )}
+                Invite
               </button>
             </div>
-          ))}
+          </div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <div className="bg-white dark:bg-[#1f2937] rounded-[1.8rem] p-5 shadow-lg border border-gray-100 dark:border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-black text-gray-900 dark:text-gray-100">Quick Tasks</h3>
+              <button onClick={() => router.push('/tasks')} className="text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline">
+                See All →
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              {TASK_DATA.map((task, i) => (
+                <motion.div
+                  key={task.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.35 + i * 0.05 }}
+                  className="flex items-center justify-between gap-3"
+                >
+                  <div className="flex-1">
+                    <p className="font-bold text-sm text-gray-900 dark:text-gray-100">{task.title}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{task.desc}</p>
+                  </div>
+                  <span className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap">
+                    +${task.reward.toFixed(4)}
+                  </span>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      <AnimatePresence>
+        {rewardAnim.show && (
+          <motion.div
+            initial={{ opacity: 0, y: 0, scale: 0.5 }}
+            animate={{ opacity: 1, y: -60, scale: 1.2 }}
+            exit={{ opacity: 0, y: -120, scale: 0.8 }}
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 text-3xl font-black text-green-500 pointer-events-none z-50"
+          >
+            +${rewardAnim.amount.toFixed(4)}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="fixed bottom-0 left-0 right-0 border-t border-gray-100 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg z-40">
+        <div className="flex items-center justify-around py-3 max-w-2xl mx-auto">
+          {NAV_ITEMS.map((item) => {
+            const isActive = pathname === item.path;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.path}
+                onClick={() => router.push(item.path)}
+                className={`flex flex-col items-center gap-1 px-4 py-1 rounded-xl transition-all ${isActive ? 'text-blue-600 dark:text-blue-400 scale-110' : 'text-gray-400 dark:text-gray-500'}`}
+              >
+                <Icon size={22} className={isActive ? 'fill-blue-100 dark:fill-blue-900/50' : ''} />
+                <span className="text-[10px] font-bold uppercase tracking-tight">{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
-
-      {/* Navigation - Floating */}
-      <div className="fixed bottom-6 left-6 right-6 h-16 bg-white/80 backdrop-blur-lg border border-gray-100 rounded-[2rem] shadow-2xl flex items-center justify-around px-4">
-        <NavIcon icon={<Play size={24} />} active label="Ads" />
-        <NavIcon icon={<Users size={24} />} label="Friends" />
-        <NavIcon icon={<Wallet size={24} />} label="Wallet" />
-        <NavIcon icon={<History size={24} />} label="History" />
-      </div>
-    </div>
-  );
-}
-
-function NavIcon({ icon, active, label }: { icon: any, active?: boolean, label: string }) {
-  return (
-    <div className={`flex flex-col items-center gap-1 ${active ? 'text-blue-600 scale-110' : 'text-gray-400'} transition-all cursor-pointer`}>
-      {icon}
-      <span className="text-[8px] font-bold uppercase tracking-tighter">{label}</span>
     </div>
   );
 }

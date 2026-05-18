@@ -1,33 +1,46 @@
 import * as crypto from 'crypto';
 
 export function validateTelegramInitData(initData: string, botToken: string): boolean {
-  const urlParams = new URLSearchParams(initData);
-  const hash = urlParams.get('hash');
-  urlParams.delete('hash');
+  try {
+    const urlParams = new URLSearchParams(initData);
+    const hash = urlParams.get('hash');
+    if (!hash) return false;
 
-  const dataCheckString = Array.from(urlParams.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n');
+    urlParams.delete('hash');
 
-  // Telegram validation per docs:
-  // secret_key = sha256(bot_token)
-  // hmac = hmac_sha256(secret_key, data_check_string)
-  const secretKey = crypto.createHash('sha256').update(botToken).digest();
+    const dataCheckString = Array.from(urlParams.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n');
 
-  const hmac = crypto
-    .createHmac('sha256', secretKey)
-    .update(dataCheckString)
-    .digest('hex');
+    const secretKey = crypto.createHash('sha256').update(botToken).digest();
+    const hmac = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 
-  return hmac === hash;
+    if (hmac !== hash) return false;
+
+    const authDate = urlParams.get('auth_date');
+    if (authDate) {
+      const authTimestamp = parseInt(authDate, 10);
+      const now = Math.floor(Date.now() / 1000);
+      const maxAge = 86400;
+      if (now - authTimestamp > maxAge) return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function parseTelegramInitData(initData: string): any {
-  const urlParams = new URLSearchParams(initData);
-  const user = urlParams.get('user');
-  if (user) {
-    return JSON.parse(user);
+  try {
+    const urlParams = new URLSearchParams(initData);
+    const user = urlParams.get('user');
+    if (user) {
+      return JSON.parse(decodeURIComponent(user));
+    }
+    return null;
+  } catch {
+    return null;
   }
-  return null;
 }

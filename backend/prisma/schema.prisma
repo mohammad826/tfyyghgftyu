@@ -20,6 +20,8 @@ enum TransactionType {
   DAILY_BONUS
   WITHDRAWAL
   ADMIN_ADJUSTMENT
+  TRANSFER_SENT
+  TRANSFER_RECEIVED
 }
 
 model User {
@@ -37,11 +39,14 @@ model User {
   
   isAdmin       Boolean  @default(false)
   isBanned      Boolean  @default(false)
+  isVip         Boolean  @default(false)
+  vipTier       Int      @default(0)
   
   lastAdWatch   DateTime?
   dailyAdsCount Int      @default(0)
   lastDailyClaim DateTime?
   streak        Int      @default(0)
+  vipEarnings   Decimal  @default(0) @db.Decimal(18, 8)
 
   transactions  Transaction[]
   withdrawals   Withdrawal[]
@@ -107,5 +112,42 @@ model FraudLog {
   data      Json?
   createdAt DateTime @default(now())
 
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String   @default("info")
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model SponsorTask {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  reward      Decimal  @db.Decimal(18, 8)
+  link        String
+  type        String   @default("subscribe")
+  isActive    Boolean  @default(true)
+  totalClaims Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model TaskCompletion {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  taskId    String
+  completedAt DateTime @default(now())
+
+  @@unique([userId, taskId])
   @@index([userId])
 }

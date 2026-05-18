@@ -7,8 +7,13 @@ import { TelegramProvider } from "@/providers/TelegramProvider";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Watch & Earn Platform",
-  description: "Earn rewards by watching ads on Telegram",
+  title: "Watch & Earn | Telegram Mini App",
+  description: "Earn rewards by watching ads, completing tasks, and referring friends on Telegram.",
+  openGraph: {
+    title: "Watch & Earn",
+    description: "Earn rewards by watching ads on Telegram",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
@@ -30,7 +35,7 @@ export default function RootLayout({
           strategy="beforeInteractive"
         />
       </head>
-      <body className={`${inter.className} bg-[#f0f0f0] text-[#000000] h-full overflow-hidden`}>
+      <body className={`${inter.className} bg-[#f0f0f0] dark:bg-[#111827] text-[#000000] dark:text-[#f9fafb] h-full overflow-hidden`}>
         <TelegramProvider>
           <main className="h-full flex flex-col overflow-y-auto">
             {children}

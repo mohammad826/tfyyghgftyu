@@ -6,14 +6,19 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Security
   app.use(helmet());
-  app.enableCors();
+  app.enableCors({
+    origin: [
+      /.*\.vercel\.app$/,
+      /.*\.onrender\.com$/,
+      /localhost:/,
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    credentials: true,
+  });
 
-  // Global Prefix
   app.setGlobalPrefix('api');
 
-  // Validation
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     transform: true,
