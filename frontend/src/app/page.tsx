@@ -2,7 +2,7 @@
 
 import { useStore } from "@/store/useStore";
 import { Play, Wallet, Users, History, Gift, Timer, ExternalLink, CheckCircle, RefreshCw } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import api from "@/api/axios";
 import { motion } from "framer-motion";
 
@@ -11,6 +11,9 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [stats, setStats] = useState<any>(null);
+  const [initialAdShown, setInitialAdShown] = useState(false);
+  const [showErrorScreen, setShowErrorScreen] = useState(false);
+  const periodicAdRef = useRef<number | null>(null);
 
   // Native Sponsor Tasks State
   const [tasks, setTasks] = useState<any[]>([
@@ -74,6 +77,86 @@ export default function Home() {
       triggerInApp();
     }
   }, []);
+
+  // If the user opens the app via Telegram but is not authenticated yet,
+  // show an ad right after the welcome message, then display the error overlay
+  // that the user mentioned. The back button will be non-functional on that overlay.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let mounted = true;
+
+    const runInitialAdFlow = async () => {
+      try {
+        const showAdFn = (window as any).show_11017565;
+        if (typeof showAdFn === 'function') {
+          // small delay so the user sees the welcome message first
+          await new Promise((r) => setTimeout(r, 800));
+          try {
+            await showAdFn();
+            if (!mounted) return;
+            setInitialAdShown(true);
+          } catch (err) {
+            // user closed ad or it failed — still show the error overlay per spec
+            console.warn('Initial ad closed or failed', err);
+          }
+        } else {
+          // Fallback simulation
+          await new Promise((r) => setTimeout(r, 1200));
+        }
+      } finally {
+        if (!mounted) return;
+        // Show the error overlay after the ad (or simulated ad)
+        setShowErrorScreen(true);
+      }
+    };
+
+    // Trigger initial ad only when user is not present (opens in Telegram but not logged in)
+    if (!user && !initialAdShown) {
+      runInitialAdFlow();
+    }
+
+    return () => {
+      mounted = false;
+    };
+  }, [user, initialAdShown]);
+
+  // Periodic ads for logged-in users every few minutes
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Clear previous interval if any
+    if (periodicAdRef.current) {
+      window.clearInterval(periodicAdRef.current);
+      periodicAdRef.current = null;
+    }
+
+    if (user) {
+      const showPeriodicAd = async () => {
+        try {
+          const showAdFn = (window as any).show_11017565;
+          if (typeof showAdFn === 'function') {
+            await showAdFn();
+            // Optionally refresh stats or update balance after ad
+            fetchStats();
+          }
+        } catch (e) {
+          console.warn('Periodic ad failed or closed', e);
+        }
+      };
+
+      // Show first periodic ad after 3 minutes, then every 3 minutes
+      const id = window.setInterval(showPeriodicAd, 3 * 60 * 1000);
+      periodicAdRef.current = id as unknown as number;
+
+      return () => {
+        if (periodicAdRef.current) {
+          window.clearInterval(periodicAdRef.current);
+          periodicAdRef.current = null;
+        }
+      };
+    }
+  }, [user]);
 
   const fetchStats = async () => {
     try {
@@ -178,9 +261,54 @@ export default function Home() {
     }
   }, [cooldown]);
 
+  // Block navigation when showing the error overlay so back button doesn't work
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (!showErrorScreen) return;
+
+    // Push a new history entry and prevent popping while overlay is active
+    try {
+      window.history.pushState(null, '', window.location.href);
+      const onPop = () => {
+        // Re-push so the user can't go back
+        window.history.pushState(null, '', window.location.href);
+      };
+      window.addEventListener('popstate', onPop);
+
+      return () => {
+        window.removeEventListener('popstate', onPop);
+      };
+    } catch (e) {
+      // ignore
+    }
+  }, [showErrorScreen]);
+
   if (!user) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+        {showErrorScreen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl p-6 w-[90%] max-w-md text-center">
+              <h3 className="font-bold text-lg mb-2">This page couldn't load</h3>
+              <p className="text-sm text-gray-600 mb-4">Reload to try again or go back</p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-2xl font-bold"
+                >
+                  Reload
+                </button>
+                <button
+                  onClick={() => {/* intentionally disabled: back is blocked */}}
+                  className="px-4 py-2 bg-gray-200 text-gray-600 rounded-2xl font-bold cursor-not-allowed"
+                >
+                  Go back
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="bg-white p-8 rounded-3xl shadow-xl border border-blue-100">
           <div className="w-20 h-20 bg-blue-500 rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-lg shadow-blue-200">
             <Play className="text-white w-10 h-10 fill-current" />
